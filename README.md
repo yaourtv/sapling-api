@@ -84,4 +84,4 @@ docker build -t job-tracker-api .
 docker run --env-file .env -p 8080:8080 job-tracker-api
 ```
 
-The full homelab stack (Traefik, Postgres, frontend) lives in `job-tracker-deploy`. CI (`.github/workflows/ci.yml`) runs tests/vet/golangci-lint, builds a multi-arch image, scans it with Trivy, and pushes to GHCR on version tags.
+The full deployment stack (Traefik, Postgres, frontend) lives in `job-tracker-deploy`. CI (`.github/workflows/ci.yml`) runs tests/vet/golangci-lint, builds a multi-arch image, scans it with Trivy, and pushes to GHCR on version tags.
