@@ -20,7 +20,10 @@ const (
 	maxTitleLen       = 40
 	maxDescriptionLen = 512
 	slotGranule       = 30 * time.Minute
-	maxPublicRange    = 62 * 24 * time.Hour
+	// The public calendar page requests a ±4-week window (from = -4 weeks,
+	// to = from + 9 weeks = 63 days). Keep this above that, with a little slack
+	// for week-alignment and DST shifts, while still bounding the query.
+	maxPublicRange = 70 * 24 * time.Hour
 )
 
 type CalendarService struct {
