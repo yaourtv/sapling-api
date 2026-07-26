@@ -2,6 +2,7 @@ package token
 
 import (
 	"regexp"
+	"strings"
 	"testing"
 	"time"
 
@@ -52,24 +53,46 @@ func TestAccessTokenWrongSecret(t *testing.T) {
 func TestResetTokenNotUsableAsAccessToken(t *testing.T) {
 	m := newTestManager(15 * time.Minute)
 	userID := uuid.New()
-	reset, err := m.IssueResetToken(userID)
+	reset, err := m.IssueResetToken(userID, PasswordFingerprint("hash-of-the-old-password"))
 	if err != nil {
 		t.Fatalf("issue reset: %v", err)
 	}
 	if _, err := m.ValidateAccessToken(reset); err == nil {
 		t.Error("reset token accepted as access token")
 	}
-	got, err := m.ValidateResetToken(reset)
+	got, fingerprint, err := m.ValidateResetToken(reset)
 	if err != nil {
 		t.Fatalf("validate reset: %v", err)
 	}
 	if got != userID {
 		t.Errorf("got %s, want %s", got, userID)
 	}
+	if fingerprint != PasswordFingerprint("hash-of-the-old-password") {
+		t.Errorf("fingerprint round-trip failed: got %q", fingerprint)
+	}
 
 	access, _ := m.IssueAccessToken(userID)
-	if _, err := m.ValidateResetToken(access); err == nil {
+	if _, _, err := m.ValidateResetToken(access); err == nil {
 		t.Error("access token accepted as reset token")
+	}
+}
+
+// The fingerprint is what makes a reset link single-use: once the password
+// changes, the tag the token carries no longer matches the account.
+func TestPasswordFingerprintChangesWithTheHash(t *testing.T) {
+	before := PasswordFingerprint("$2a$12$oldhash")
+	after := PasswordFingerprint("$2a$12$newhash")
+	if before == after {
+		t.Error("fingerprint did not change with the password hash")
+	}
+	if before != PasswordFingerprint("$2a$12$oldhash") {
+		t.Error("fingerprint is not stable for the same hash")
+	}
+	if len(before) != 16 {
+		t.Errorf("fingerprint length = %d, want 16", len(before))
+	}
+	if strings.Contains(before, "oldhash") {
+		t.Error("fingerprint leaks the hash it was derived from")
 	}
 }
 

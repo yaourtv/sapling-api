@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/egoralekseychik/job-tracker-api/internal/middleware"
 	"github.com/egoralekseychik/job-tracker-api/internal/service"
 )
 
@@ -139,6 +140,33 @@ func (h *AuthHandler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "password updated"})
+}
+
+type changePasswordRequest struct {
+	CurrentPassword string `json:"current_password"`
+	NewPassword     string `json:"new_password"`
+}
+
+// ChangePassword lives on the authenticated /user routes but is served here,
+// where the refresh cookie helpers are — changing a password reissues the pair.
+func (h *AuthHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
+	var req changePasswordRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	resp, err := h.auth.ChangePassword(
+		r.Context(),
+		middleware.UserID(r.Context()),
+		req.CurrentPassword,
+		req.NewPassword,
+	)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	h.setRefreshCookie(w, resp.RefreshToken)
+	writeJSON(w, http.StatusOK, resp)
 }
 
 func (h *AuthHandler) setRefreshCookie(w http.ResponseWriter, token string) {

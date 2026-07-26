@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -174,7 +175,12 @@ func (s *AuthService) Logout(ctx context.Context, refreshToken string) error {
 	return err
 }
 
-// ForgotPassword issues a reset token. It never reveals whether the email exists.
+const minPasswordLen = 8
+
+// ForgotPassword issues a reset link. It never reveals whether the email exists.
+//
+// The link is bound to the password it was issued against, so it stops working
+// the moment that password changes — using it once is enough to kill it.
 func (s *AuthService) ForgotPassword(ctx context.Context, email string) error {
 	user, err := s.q.GetUserByEmail(ctx, email)
 	if err != nil {
@@ -183,7 +189,7 @@ func (s *AuthService) ForgotPassword(ctx context.Context, email string) error {
 		}
 		return err
 	}
-	reset, err := s.tokens.IssueResetToken(user.ID)
+	reset, err := s.tokens.IssueResetToken(user.ID, token.PasswordFingerprint(user.PasswordHash))
 	if err != nil {
 		return err
 	}
@@ -198,26 +204,47 @@ func (s *AuthService) ForgotPassword(ctx context.Context, email string) error {
 		}
 		return nil
 	}
+	// No mail transport (dev): the container log is the only delivery.
 	log.Printf("password reset link for %s: %s", user.Email, link)
 	return nil
 }
 
 func (s *AuthService) sendResetEmail(to, link string) error {
+	body := fmt.Sprintf(
+		"Someone asked to reset the password on your account.\r\n\r\n"+
+			"Set a new one: %s\r\n\r\n"+
+			"The link is good for one hour and stops working once it's used.\r\n"+
+			"If this wasn't you, ignore it — nothing has changed.\r\n",
+		link)
+	msg := fmt.Sprintf("From: %s\r\nTo: %s\r\nSubject: Reset your password\r\n\r\n%s",
+		s.cfg.SMTPFrom, to, body)
 	addr := fmt.Sprintf("%s:%d", s.cfg.SMTPHost, s.cfg.SMTPPort)
-	msg := fmt.Sprintf("From: %s\r\nTo: %s\r\nSubject: Password reset\r\n\r\nReset your password: %s\r\n",
-		s.cfg.SMTPFrom, to, link)
 	auth := smtp.PlainAuth("", s.cfg.SMTPUser, s.cfg.SMTPPass, s.cfg.SMTPHost)
 	return smtp.SendMail(addr, auth, s.cfg.SMTPFrom, []string{to}, []byte(msg))
 }
 
+// ResetPassword consumes a reset link. The token carries a fingerprint of the
+// password it was issued against; if that no longer matches, the link has
+// already been spent (or the password moved on some other way) and is refused.
 func (s *AuthService) ResetPassword(ctx context.Context, resetToken, newPassword string) error {
-	if len(newPassword) < 8 {
-		return validationf("password must be at least 8 characters")
+	if len(newPassword) < minPasswordLen {
+		return validationf("password must be at least %d characters", minPasswordLen)
 	}
-	userID, err := s.tokens.ValidateResetToken(resetToken)
+	userID, fingerprint, err := s.tokens.ValidateResetToken(resetToken)
 	if err != nil {
 		return ErrUnauthorized
 	}
+	user, err := s.q.GetUserByID(ctx, userID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrUnauthorized
+		}
+		return err
+	}
+	if fingerprint != token.PasswordFingerprint(user.PasswordHash) {
+		return ErrUnauthorized
+	}
+
 	hash, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcryptCost)
 	if err != nil {
 		return err
@@ -230,6 +257,45 @@ func (s *AuthService) ResetPassword(ctx context.Context, resetToken, newPassword
 	}
 	// Invalidate all sessions after a password reset.
 	return s.q.DeleteRefreshTokensForUser(ctx, userID)
+}
+
+// ChangePassword swaps a password the caller can already authenticate with.
+// Every existing session is dropped and a fresh pair issued, so the caller
+// stays signed in here and nowhere else.
+func (s *AuthService) ChangePassword(ctx context.Context, userID uuid.UUID, current, next string) (*model.AuthResponse, error) {
+	user, err := s.q.GetUserByID(ctx, userID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	// A wrong current password is a form error, not an expired session — a 401
+	// here would send the client off trying to refresh its token.
+	if bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(current)) != nil {
+		return nil, validationf("current password is incorrect")
+	}
+	if len(next) < minPasswordLen {
+		return nil, validationf("password must be at least %d characters", minPasswordLen)
+	}
+	if next == current {
+		return nil, validationf("the new password must be different from the current one")
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(next), bcryptCost)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.q.UpdateUserPassword(ctx, query.UpdateUserPasswordParams{
+		ID:           userID,
+		PasswordHash: string(hash),
+	}); err != nil {
+		return nil, err
+	}
+	if err := s.q.DeleteRefreshTokensForUser(ctx, userID); err != nil {
+		return nil, err
+	}
+	return s.issueTokens(ctx, user)
 }
 
 func (s *AuthService) issueTokens(ctx context.Context, user query.User) (*model.AuthResponse, error) {

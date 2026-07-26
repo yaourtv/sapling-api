@@ -16,6 +16,9 @@ import (
 
 const resetPurpose = "password_reset"
 
+// How long a password reset link stays usable.
+const resetTTL = time.Hour
+
 var (
 	ErrInvalidToken = errors.New("invalid token")
 	ErrExpiredToken = errors.New("token expired")
@@ -74,24 +77,50 @@ func (m *Manager) HashRefreshToken(token string) string {
 // RefreshTTL exposes the configured refresh token lifetime (for cookies).
 func (m *Manager) RefreshTTL() time.Duration { return m.refreshTTL }
 
-// IssueResetToken returns a short-lived JWT for password reset links.
-func (m *Manager) IssueResetToken(userID uuid.UUID) (string, error) {
+// PasswordFingerprint derives a short, non-reversible tag from a stored
+// password hash. Carrying it in a reset token makes the token single-use
+// without any server-side state: the moment the password changes — by this
+// reset or any other route — the tag stops matching and the link is dead.
+func PasswordFingerprint(passwordHash string) string {
+	sum := sha256.Sum256([]byte(passwordHash))
+	return hex.EncodeToString(sum[:])[:16]
+}
+
+// IssueResetToken returns a short-lived JWT for password reset links, bound to
+// the password it was issued against.
+func (m *Manager) IssueResetToken(userID uuid.UUID, fingerprint string) (string, error) {
 	now := time.Now()
 	claims := jwt.MapClaims{
 		"sub":     userID.String(),
 		"iat":     now.Unix(),
-		"exp":     now.Add(time.Hour).Unix(),
+		"exp":     now.Add(resetTTL).Unix(),
 		"purpose": resetPurpose,
+		"pfp":     fingerprint,
 	}
 	return jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(m.accessSecret)
 }
 
-// ValidateResetToken parses a reset JWT and returns the user ID.
-func (m *Manager) ValidateResetToken(tokenString string) (uuid.UUID, error) {
-	return m.validateJWT(tokenString, m.accessSecret, resetPurpose)
+// ValidateResetToken parses a reset JWT and returns the user ID together with
+// the password fingerprint it was issued against, for the caller to compare
+// against the password currently on the account.
+func (m *Manager) ValidateResetToken(tokenString string) (uuid.UUID, string, error) {
+	userID, claims, err := m.parseJWT(tokenString, m.accessSecret, resetPurpose)
+	if err != nil {
+		return uuid.Nil, "", err
+	}
+	fingerprint, _ := claims["pfp"].(string)
+	if fingerprint == "" {
+		return uuid.Nil, "", ErrInvalidToken
+	}
+	return userID, fingerprint, nil
 }
 
 func (m *Manager) validateJWT(tokenString string, secret []byte, purpose string) (uuid.UUID, error) {
+	userID, _, err := m.parseJWT(tokenString, secret, purpose)
+	return userID, err
+}
+
+func (m *Manager) parseJWT(tokenString string, secret []byte, purpose string) (uuid.UUID, jwt.MapClaims, error) {
 	parsed, err := jwt.Parse(tokenString, func(t *jwt.Token) (interface{}, error) {
 		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("unexpected signing method %v", t.Header["alg"])
@@ -100,28 +129,28 @@ func (m *Manager) validateJWT(tokenString string, secret []byte, purpose string)
 	}, jwt.WithExpirationRequired())
 	if err != nil {
 		if errors.Is(err, jwt.ErrTokenExpired) {
-			return uuid.Nil, ErrExpiredToken
+			return uuid.Nil, nil, ErrExpiredToken
 		}
-		return uuid.Nil, ErrInvalidToken
+		return uuid.Nil, nil, ErrInvalidToken
 	}
 	claims, ok := parsed.Claims.(jwt.MapClaims)
 	if !ok || !parsed.Valid {
-		return uuid.Nil, ErrInvalidToken
+		return uuid.Nil, nil, ErrInvalidToken
 	}
 	if purpose != "" {
 		if p, _ := claims["purpose"].(string); p != purpose {
-			return uuid.Nil, ErrInvalidToken
+			return uuid.Nil, nil, ErrInvalidToken
 		}
 	} else if _, hasPurpose := claims["purpose"]; hasPurpose {
 		// A reset token must never pass as an access token.
-		return uuid.Nil, ErrInvalidToken
+		return uuid.Nil, nil, ErrInvalidToken
 	}
 	sub, _ := claims["sub"].(string)
 	userID, err := uuid.Parse(sub)
 	if err != nil {
-		return uuid.Nil, ErrInvalidToken
+		return uuid.Nil, nil, ErrInvalidToken
 	}
-	return userID, nil
+	return userID, claims, nil
 }
 
 const calendarTokenAlphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
