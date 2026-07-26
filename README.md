@@ -75,7 +75,9 @@ Notable behaviors:
 - Registration seeds five statuses (Applied, Interview, Accepted, Rejected, and the undeletable system status **Lost**) and generates the 6-char public calendar token.
 - Refresh tokens rotate on every `/api/auth/refresh`; they are stored hashed and also set as an `HttpOnly` cookie.
 - Deleting a status that applications still use returns `409` with `{affected_count, lost_status_id}`; retry with `?confirm=true` to move those applications to Lost.
-- The public calendar exposes only slot times and a type (`busy` / `tentative` / `available`); available slots are 30-minute granules computed from availability windows minus busy/tentative overlap. Invitations must start inside an available slot and last a positive multiple of 30 minutes.
+- The public calendar returns the owner's `display_name` and `timezone` alongside the slots, so whoever follows the link can see they are booking with the right person. Nothing else about the owner is exposed — slots carry only times and a type (`busy` / `tentative` / `available`), never titles. Available slots are 30-minute granules computed from availability windows minus busy/tentative overlap.
+- Published slots are 30-minute granules, but a **submitted invitation** only has to fit one open availability window and clash with nothing already booked — it may last any positive multiple of 5 minutes and need not align to a granule boundary. A proposal spanning two adjacent windows is refused.
+- Availability windows support `PATCH /api/calendar/availability/{id}`: every field is optional and an omitted one keeps its current value, so editing a window's hours preserves its identity. Flipping `is_recurring` clears whichever of `day_of_week` / `specific_date` no longer applies.
 
 ## Deploy
 

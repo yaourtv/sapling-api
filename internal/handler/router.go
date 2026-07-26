@@ -78,6 +78,7 @@ func NewRouter(h Handlers, tokens *token.Manager, corsOrigin string) http.Handle
 				r.Delete("/events/{id}", h.Calendar.DeleteEvent)
 				r.Get("/availability", h.Calendar.ListAvailability)
 				r.Post("/availability", h.Calendar.CreateAvailability)
+				r.Patch("/availability/{id}", h.Calendar.UpdateAvailability)
 				r.Delete("/availability/{id}", h.Calendar.DeleteAvailability)
 				r.Get("/invitations", h.Calendar.ListInvitations)
 				r.Post("/invitations/{id}/accept", h.Calendar.AcceptInvitation)

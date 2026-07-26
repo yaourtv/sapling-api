@@ -123,6 +123,24 @@ func (h *CalendarHandler) CreateAvailability(w http.ResponseWriter, r *http.Requ
 	writeJSON(w, http.StatusCreated, window)
 }
 
+func (h *CalendarHandler) UpdateAvailability(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathUUID(w, r, "id")
+	if !ok {
+		return
+	}
+	var in service.AvailabilityPatch
+	if err := decodeJSON(r, &in); err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	window, err := h.calendar.UpdateAvailability(r.Context(), middleware.UserID(r.Context()), id, in)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, window)
+}
+
 func (h *CalendarHandler) DeleteAvailability(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathUUID(w, r, "id")
 	if !ok {
