@@ -50,6 +50,8 @@ func NewRouter(h Handlers, tokens *token.Manager, corsOrigin string) http.Handle
 			r.Route("/user", func(r chi.Router) {
 				r.Get("/me", h.User.Me)
 				r.Patch("/me", h.User.UpdateMe)
+				// Served by AuthHandler: it reissues the token pair.
+				r.Post("/password", h.Auth.ChangePassword)
 				r.Get("/calendar-token", h.User.CalendarToken)
 				r.Post("/calendar-token/regenerate", h.User.RegenerateCalendarToken)
 			})
