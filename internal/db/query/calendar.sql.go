@@ -172,6 +172,31 @@ func (q *Queries) DeleteInvitation(ctx context.Context, arg DeleteInvitationPara
 	return result.RowsAffected(), nil
 }
 
+const getAvailabilityWindow = `-- name: GetAvailabilityWindow :one
+SELECT id, user_id, is_recurring, day_of_week, specific_date, start_time, end_time, created_at FROM availability_windows WHERE id = $1 AND user_id = $2
+`
+
+type GetAvailabilityWindowParams struct {
+	ID     uuid.UUID
+	UserID uuid.UUID
+}
+
+func (q *Queries) GetAvailabilityWindow(ctx context.Context, arg GetAvailabilityWindowParams) (AvailabilityWindow, error) {
+	row := q.db.QueryRow(ctx, getAvailabilityWindow, arg.ID, arg.UserID)
+	var i AvailabilityWindow
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.IsRecurring,
+		&i.DayOfWeek,
+		&i.SpecificDate,
+		&i.StartTime,
+		&i.EndTime,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const getEvent = `-- name: GetEvent :one
 SELECT id, user_id, title, description, starts_at, ends_at, created_at FROM calendar_events WHERE id = $1 AND user_id = $2
 `
@@ -365,6 +390,47 @@ func (q *Queries) ListInvitationsInRange(ctx context.Context, arg ListInvitation
 		return nil, err
 	}
 	return items, nil
+}
+
+const updateAvailabilityWindow = `-- name: UpdateAvailabilityWindow :one
+UPDATE availability_windows
+SET is_recurring = $3, day_of_week = $4, specific_date = $5, start_time = $6, end_time = $7
+WHERE id = $1 AND user_id = $2
+RETURNING id, user_id, is_recurring, day_of_week, specific_date, start_time, end_time, created_at
+`
+
+type UpdateAvailabilityWindowParams struct {
+	ID           uuid.UUID
+	UserID       uuid.UUID
+	IsRecurring  bool
+	DayOfWeek    *int16
+	SpecificDate pgtype.Date
+	StartTime    pgtype.Time
+	EndTime      pgtype.Time
+}
+
+func (q *Queries) UpdateAvailabilityWindow(ctx context.Context, arg UpdateAvailabilityWindowParams) (AvailabilityWindow, error) {
+	row := q.db.QueryRow(ctx, updateAvailabilityWindow,
+		arg.ID,
+		arg.UserID,
+		arg.IsRecurring,
+		arg.DayOfWeek,
+		arg.SpecificDate,
+		arg.StartTime,
+		arg.EndTime,
+	)
+	var i AvailabilityWindow
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.IsRecurring,
+		&i.DayOfWeek,
+		&i.SpecificDate,
+		&i.StartTime,
+		&i.EndTime,
+		&i.CreatedAt,
+	)
+	return i, err
 }
 
 const updateEvent = `-- name: UpdateEvent :one

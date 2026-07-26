@@ -19,7 +19,12 @@ import (
 const (
 	maxTitleLen       = 40
 	maxDescriptionLen = 512
-	slotGranule       = 30 * time.Minute
+	// Granularity of the available slots published on the public calendar.
+	slotGranule = 30 * time.Minute
+	// Granularity a submitted invitation may actually use. Finer than
+	// slotGranule so a 15-minute intro or a 1h45 panel can be requested; the
+	// booking page offers the same 5-minute steps for a custom length.
+	inviteGranule = 5 * time.Minute
 	// The public calendar page requests a ±4-week window (from = -4 weeks,
 	// to = from + 9 weeks = 63 days). Keep this above that, with a little slack
 	// for week-alignment and DST shifts, while still bounding the query.
@@ -164,12 +169,32 @@ type AvailabilityInput struct {
 	EndTime      string  `json:"end_time"`      // HH:MM (UTC)
 }
 
-func (s *CalendarService) CreateAvailability(ctx context.Context, userID uuid.UUID, in AvailabilityInput) (*model.AvailabilityWindow, error) {
-	start, err := parseClock(in.StartTime)
+// AvailabilityPatch is the PATCH body: every field is optional, and an omitted
+// field keeps its current value. Flipping is_recurring clears whichever of
+// day_of_week / specific_date no longer applies.
+type AvailabilityPatch struct {
+	IsRecurring  *bool   `json:"is_recurring"`
+	DayOfWeek    *int    `json:"day_of_week"`
+	SpecificDate *string `json:"specific_date"`
+	StartTime    *string `json:"start_time"`
+	EndTime      *string `json:"end_time"`
+}
+
+// resolvedWindow is a fully-specified window, already checked against the
+// day_of_week / specific_date XOR the table enforces.
+type resolvedWindow struct {
+	isRecurring  bool
+	dayOfWeek    *int16
+	specificDate pgtype.Date
+	start, end   pgtype.Time
+}
+
+func resolveWindow(isRecurring bool, dayOfWeek *int, specificDate *string, startTime, endTime string) (*resolvedWindow, error) {
+	start, err := parseClock(startTime)
 	if err != nil {
 		return nil, validationf("invalid start_time: %v", err)
 	}
-	end, err := parseClock(in.EndTime)
+	end, err := parseClock(endTime)
 	if err != nil {
 		return nil, validationf("invalid end_time: %v", err)
 	}
@@ -177,34 +202,101 @@ func (s *CalendarService) CreateAvailability(ctx context.Context, userID uuid.UU
 		return nil, validationf("end_time must be after start_time")
 	}
 
-	params := query.CreateAvailabilityWindowParams{
-		UserID:      userID,
-		IsRecurring: in.IsRecurring,
-		StartTime:   pgtype.Time{Microseconds: start.Microseconds(), Valid: true},
-		EndTime:     pgtype.Time{Microseconds: end.Microseconds(), Valid: true},
+	out := &resolvedWindow{
+		isRecurring: isRecurring,
+		start:       pgtype.Time{Microseconds: start.Microseconds(), Valid: true},
+		end:         pgtype.Time{Microseconds: end.Microseconds(), Valid: true},
 	}
-	if in.IsRecurring {
-		if in.DayOfWeek == nil || *in.DayOfWeek < 0 || *in.DayOfWeek > 6 {
+	if isRecurring {
+		if dayOfWeek == nil || *dayOfWeek < 0 || *dayOfWeek > 6 {
 			return nil, validationf("day_of_week must be 0 (Mon) … 6 (Sun) for recurring windows")
 		}
-		dow := int16(*in.DayOfWeek)
-		params.DayOfWeek = &dow
+		dow := int16(*dayOfWeek)
+		out.dayOfWeek = &dow
 	} else {
-		if in.SpecificDate == nil {
+		if specificDate == nil {
 			return nil, validationf("specific_date is required for one-time windows")
 		}
-		d, err := time.ParseInLocation("2006-01-02", *in.SpecificDate, time.UTC)
+		d, err := time.ParseInLocation("2006-01-02", *specificDate, time.UTC)
 		if err != nil {
 			return nil, validationf("specific_date must be YYYY-MM-DD")
 		}
-		params.SpecificDate = pgtype.Date{Time: d, Valid: true}
+		out.specificDate = pgtype.Date{Time: d, Valid: true}
 	}
+	return out, nil
+}
 
-	row, err := s.q.CreateAvailabilityWindow(ctx, params)
+func (s *CalendarService) CreateAvailability(ctx context.Context, userID uuid.UUID, in AvailabilityInput) (*model.AvailabilityWindow, error) {
+	w, err := resolveWindow(in.IsRecurring, in.DayOfWeek, in.SpecificDate, in.StartTime, in.EndTime)
+	if err != nil {
+		return nil, err
+	}
+	row, err := s.q.CreateAvailabilityWindow(ctx, query.CreateAvailabilityWindowParams{
+		UserID:       userID,
+		IsRecurring:  w.isRecurring,
+		DayOfWeek:    w.dayOfWeek,
+		SpecificDate: w.specificDate,
+		StartTime:    w.start,
+		EndTime:      w.end,
+	})
 	if err != nil {
 		return nil, err
 	}
 	m := availabilityToModel(row)
+	return &m, nil
+}
+
+// UpdateAvailability applies a partial change to one window. Editing the hours
+// of an existing window is the common case, so it keeps the window's identity
+// instead of forcing callers to delete and recreate it.
+func (s *CalendarService) UpdateAvailability(ctx context.Context, userID, windowID uuid.UUID, in AvailabilityPatch) (*model.AvailabilityWindow, error) {
+	row, err := s.q.GetAvailabilityWindow(ctx, query.GetAvailabilityWindowParams{ID: windowID, UserID: userID})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	current := availabilityToModel(row)
+
+	isRecurring := current.IsRecurring
+	if in.IsRecurring != nil {
+		isRecurring = *in.IsRecurring
+	}
+	dayOfWeek := current.DayOfWeek
+	if in.DayOfWeek != nil {
+		dayOfWeek = in.DayOfWeek
+	}
+	specificDate := current.SpecificDate
+	if in.SpecificDate != nil {
+		specificDate = in.SpecificDate
+	}
+	startTime := current.StartTime
+	if in.StartTime != nil {
+		startTime = *in.StartTime
+	}
+	endTime := current.EndTime
+	if in.EndTime != nil {
+		endTime = *in.EndTime
+	}
+
+	w, err := resolveWindow(isRecurring, dayOfWeek, specificDate, startTime, endTime)
+	if err != nil {
+		return nil, err
+	}
+	updated, err := s.q.UpdateAvailabilityWindow(ctx, query.UpdateAvailabilityWindowParams{
+		ID:           windowID,
+		UserID:       userID,
+		IsRecurring:  w.isRecurring,
+		DayOfWeek:    w.dayOfWeek,
+		SpecificDate: w.specificDate,
+		StartTime:    w.start,
+		EndTime:      w.end,
+	})
+	if err != nil {
+		return nil, err
+	}
+	m := availabilityToModel(updated)
 	return &m, nil
 }
 
@@ -294,8 +386,8 @@ func (s *CalendarService) DeclineInvitation(ctx context.Context, userID, invitat
 
 // ---- Public calendar ----
 
-// PublicCalendar resolves a calendar token and returns busy/tentative/available
-// slots in [from, to). Titles are never included.
+// PublicCalendar resolves a calendar token and returns the owner's display name
+// plus busy/tentative/available slots in [from, to). Titles are never included.
 func (s *CalendarService) PublicCalendar(ctx context.Context, calToken string, from, to time.Time) (*model.PublicCalendar, error) {
 	user, err := s.q.GetUserByCalendarToken(ctx, calToken)
 	if err != nil {
@@ -328,7 +420,11 @@ func (s *CalendarService) PublicCalendar(ctx context.Context, calToken string, f
 	}
 	sort.Slice(slots, func(i, j int) bool { return slots[i].StartsAt.Before(slots[j].StartsAt) })
 
-	return &model.PublicCalendar{Timezone: user.Timezone, Slots: slots}, nil
+	return &model.PublicCalendar{
+		DisplayName: user.DisplayName,
+		Timezone:    user.Timezone,
+		Slots:       slots,
+	}, nil
 }
 
 type PublicInviteInput struct {
@@ -357,29 +453,23 @@ func (s *CalendarService) SubmitInvitation(ctx context.Context, calToken string,
 		return nil, err
 	}
 	dur := ends.Sub(starts)
-	if dur <= 0 || dur%slotGranule != 0 {
-		return nil, validationf("duration must be a positive multiple of 30 minutes")
+	if dur <= 0 || dur%inviteGranule != 0 {
+		return nil, validationf("duration must be a positive multiple of 5 minutes")
 	}
 	if starts.Before(time.Now().UTC()) {
 		return nil, validationf("proposed time is in the past")
 	}
 
-	// Recompute availability around the proposal and require every 30-minute
-	// granule of the proposal to be an available slot.
-	dayStart := starts.Truncate(24 * time.Hour).Add(-24 * time.Hour)
-	dayEnd := ends.Truncate(24 * time.Hour).Add(48 * time.Hour)
-	_, _, available, err := s.slotsForRange(ctx, user.ID, dayStart, dayEnd)
+	// The published slots are 30-minute granules, but a proposal is only
+	// required to fit one open window and clash with nothing — otherwise a
+	// 45-minute request that plainly fits would be refused for straddling a
+	// granule boundary.
+	ok, err := s.fitsOpenWindow(ctx, user.ID, starts, ends)
 	if err != nil {
 		return nil, err
 	}
-	availableStarts := make(map[int64]bool, len(available))
-	for _, r := range available {
-		availableStarts[r.start.Unix()] = true
-	}
-	for t := starts; t.Before(ends); t = t.Add(slotGranule) {
-		if !availableStarts[t.Unix()] {
-			return nil, validationf("proposed time is not within an available slot")
-		}
+	if !ok {
+		return nil, validationf("proposed time is not within an open window")
 	}
 
 	row, err := s.q.CreateInvitation(ctx, query.CreateInvitationParams{
@@ -394,6 +484,66 @@ func (s *CalendarService) SubmitInvitation(ctx context.Context, calToken string,
 	}
 	m := invitationToModel(row)
 	return &m, nil
+}
+
+// fitsOpenWindow loads the user's windows and bookings around a proposal and
+// reports whether the proposal can be accepted.
+func (s *CalendarService) fitsOpenWindow(ctx context.Context, userID uuid.UUID, starts, ends time.Time) (bool, error) {
+	from := starts.Truncate(24 * time.Hour).Add(-24 * time.Hour)
+	to := ends.Truncate(24 * time.Hour).Add(48 * time.Hour)
+
+	windowRows, err := s.q.ListAvailabilityWindows(ctx, userID)
+	if err != nil {
+		return false, err
+	}
+	windows := make([]window, 0, len(windowRows))
+	for _, w := range windowRows {
+		windows = append(windows, windowFromRow(w))
+	}
+
+	events, err := s.q.ListEventsInRange(ctx, query.ListEventsInRangeParams{UserID: userID, Until: to, Since: from})
+	if err != nil {
+		return false, err
+	}
+	invites, err := s.q.ListInvitationsInRange(ctx, query.ListInvitationsInRangeParams{UserID: userID, Until: to, Since: from})
+	if err != nil {
+		return false, err
+	}
+	blocked := make([]timeRange, 0, len(events)+len(invites))
+	for _, e := range events {
+		blocked = append(blocked, timeRange{start: e.StartsAt, end: e.EndsAt})
+	}
+	for _, i := range invites {
+		blocked = append(blocked, timeRange{start: i.ProposedStarts, end: i.ProposedEnds})
+	}
+
+	return fitsWindow(
+		expandWindows(from, to, windows),
+		blocked,
+		timeRange{start: starts, end: ends},
+	), nil
+}
+
+// fitsWindow reports whether the proposal sits entirely inside a single window
+// occurrence and overlaps nothing already booked. Spanning two adjacent
+// occurrences does not count — an interview has to fit one open window.
+func fitsWindow(occurrences, blocked []timeRange, proposal timeRange) bool {
+	inside := false
+	for _, occ := range occurrences {
+		if !occ.start.After(proposal.start) && !occ.end.Before(proposal.end) {
+			inside = true
+			break
+		}
+	}
+	if !inside {
+		return false
+	}
+	for _, b := range blocked {
+		if proposal.overlaps(b) {
+			return false
+		}
+	}
+	return true
 }
 
 // slotsForRange loads events, invitations, and availability windows for the

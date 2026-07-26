@@ -25,10 +25,19 @@ INSERT INTO availability_windows (user_id, is_recurring, day_of_week, specific_d
 VALUES ($1, $2, $3, $4, $5, $6)
 RETURNING *;
 
+-- name: GetAvailabilityWindow :one
+SELECT * FROM availability_windows WHERE id = $1 AND user_id = $2;
+
 -- name: ListAvailabilityWindows :many
 SELECT * FROM availability_windows
 WHERE user_id = $1
 ORDER BY is_recurring DESC, day_of_week, specific_date, start_time;
+
+-- name: UpdateAvailabilityWindow :one
+UPDATE availability_windows
+SET is_recurring = $3, day_of_week = $4, specific_date = $5, start_time = $6, end_time = $7
+WHERE id = $1 AND user_id = $2
+RETURNING *;
 
 -- name: DeleteAvailabilityWindow :execrows
 DELETE FROM availability_windows WHERE id = $1 AND user_id = $2;

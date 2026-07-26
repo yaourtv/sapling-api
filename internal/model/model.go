@@ -105,6 +105,10 @@ type Slot struct {
 }
 
 type PublicCalendar struct {
-	Timezone string `json:"timezone"`
-	Slots    []Slot `json:"slots"`
+	// DisplayName says whose calendar this is, so whoever follows the link
+	// knows they are booking with the right person. It is the only thing about
+	// the owner this endpoint exposes.
+	DisplayName string `json:"display_name"`
+	Timezone    string `json:"timezone"`
+	Slots       []Slot `json:"slots"`
 }
