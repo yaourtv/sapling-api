@@ -7,7 +7,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/egoralekseychik/job-tracker-api/internal/token"
+	"github.com/yaourtv/sapling-api/internal/token"
 )
 
 type contextKey string

@@ -1,4 +1,4 @@
-module github.com/egoralekseychik/job-tracker-api
+module github.com/yaourtv/sapling-api
 
 go 1.25.7
 

@@ -6,7 +6,7 @@ import (
 	"log"
 	"net/http"
 
-	"github.com/egoralekseychik/job-tracker-api/internal/service"
+	"github.com/yaourtv/sapling-api/internal/service"
 )
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

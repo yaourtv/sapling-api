@@ -1,7 +1,7 @@
-# TASKS — job-tracker-api
+# TASKS — sapling-api
 
-Scope: this directory is the `job-tracker-api` repo from the spec (Go backend).
-The `job-tracker-web` and `job-tracker-deploy` repos are separate and out of scope
+Scope: this directory is the `sapling-api` repo from the spec (Go backend).
+The `sapling-web` and `sapling-deploy` repos are separate and out of scope
 for this working directory.
 
 ## Foundation

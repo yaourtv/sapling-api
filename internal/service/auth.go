@@ -15,10 +15,10 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/crypto/bcrypt"
 
-	"github.com/egoralekseychik/job-tracker-api/internal/config"
-	"github.com/egoralekseychik/job-tracker-api/internal/db/query"
-	"github.com/egoralekseychik/job-tracker-api/internal/model"
-	"github.com/egoralekseychik/job-tracker-api/internal/token"
+	"github.com/yaourtv/sapling-api/internal/config"
+	"github.com/yaourtv/sapling-api/internal/db/query"
+	"github.com/yaourtv/sapling-api/internal/model"
+	"github.com/yaourtv/sapling-api/internal/token"
 )
 
 const bcryptCost = 12

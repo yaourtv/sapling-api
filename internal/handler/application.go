@@ -6,8 +6,8 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
-	"github.com/egoralekseychik/job-tracker-api/internal/middleware"
-	"github.com/egoralekseychik/job-tracker-api/internal/service"
+	"github.com/yaourtv/sapling-api/internal/middleware"
+	"github.com/yaourtv/sapling-api/internal/service"
 )
 
 type ApplicationHandler struct {

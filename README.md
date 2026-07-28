@@ -1,12 +1,12 @@
-# job-tracker-api
+# sapling-api
 
-Go backend for **job-tracker**, a personal, single-tenant job application tracker:
+Go backend for **Sapling**, a personal, single-tenant job application tracker:
 
 - **Applications** — cards with custom, user-defined statuses and a full status-change history.
 - **Calendar** — personal events, recurring/one-time availability windows, and an inbox of pending interview invitations.
 - **Public calendar** — a 6-character personal link (`/{token}`) where interviewers see only Busy/Tentative/Available slots and can submit an interview invitation. No accounts, no titles exposed.
 
-Companion repos: `job-tracker-web` (React + Vite frontend) and `job-tracker-deploy` (Docker Compose stack).
+Companion repos: `sapling-web` (React + Vite frontend) and `sapling-deploy` (Docker Compose stack).
 
 ## Tech stack
 
@@ -40,7 +40,7 @@ SMTP variables are optional. Without `SMTP_HOST`, password-reset links are print
 ```sh
 # disposable database
 docker run -d --name jt-pg -p 5432:5432 \
-  -e POSTGRES_USER=jobtracker -e POSTGRES_PASSWORD=jobtracker -e POSTGRES_DB=jobtracker \
+  -e POSTGRES_USER=sapling -e POSTGRES_PASSWORD=sapling -e POSTGRES_DB=sapling \
   postgres:16-alpine
 
 # run the API (migrations apply automatically)
@@ -84,8 +84,8 @@ Notable behaviors:
 ## Deploy
 
 ```sh
-docker build -t job-tracker-api .
-docker run --env-file .env -p 8080:8080 job-tracker-api
+docker build -t sapling-api .
+docker run --env-file .env -p 8080:8080 sapling-api
 ```
 
-The full deployment stack (Traefik, Postgres, frontend) lives in `job-tracker-deploy`. CI (`.github/workflows/ci.yml`) runs tests/vet/golangci-lint, builds a multi-arch image, scans it with Trivy, and pushes to GHCR on version tags.
+The full deployment stack (Traefik, Postgres, frontend) lives in `sapling-deploy`. CI (`.github/workflows/ci.yml`) runs tests/vet/golangci-lint, builds a multi-arch image, scans it with Trivy, and pushes to GHCR on version tags.

@@ -5,7 +5,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/egoralekseychik/job-tracker-api/internal/service"
+	"github.com/yaourtv/sapling-api/internal/service"
 )
 
 // PublicHandler serves the unauthenticated calendar endpoints (/api/c/:token).

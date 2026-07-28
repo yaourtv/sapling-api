@@ -7,7 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/egoralekseychik/job-tracker-api/internal/db/query"
+	"github.com/yaourtv/sapling-api/internal/db/query"
 )
 
 // RunAutoArchive periodically moves stale applications to the user's system

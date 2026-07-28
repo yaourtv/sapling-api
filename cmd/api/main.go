@@ -9,11 +9,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/egoralekseychik/job-tracker-api/internal/config"
-	"github.com/egoralekseychik/job-tracker-api/internal/db"
-	"github.com/egoralekseychik/job-tracker-api/internal/handler"
-	"github.com/egoralekseychik/job-tracker-api/internal/service"
-	"github.com/egoralekseychik/job-tracker-api/internal/token"
+	"github.com/yaourtv/sapling-api/internal/config"
+	"github.com/yaourtv/sapling-api/internal/db"
+	"github.com/yaourtv/sapling-api/internal/handler"
+	"github.com/yaourtv/sapling-api/internal/service"
+	"github.com/yaourtv/sapling-api/internal/token"
 )
 
 const archiveInterval = 6 * time.Hour

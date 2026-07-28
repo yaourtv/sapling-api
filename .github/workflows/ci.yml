@@ -63,10 +63,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Build image for scan
-        run: docker build -t job-tracker-api:scan .
+        run: docker build -t sapling-api:scan .
       - uses: aquasecurity/trivy-action@0.35.0
         with:
-          image-ref: job-tracker-api:scan
+          image-ref: sapling-api:scan
           format: table
           exit-code: "1"
           severity: CRITICAL,HIGH

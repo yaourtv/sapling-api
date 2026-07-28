@@ -4,8 +4,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/egoralekseychik/job-tracker-api/internal/middleware"
-	"github.com/egoralekseychik/job-tracker-api/internal/service"
+	"github.com/yaourtv/sapling-api/internal/middleware"
+	"github.com/yaourtv/sapling-api/internal/service"
 )
 
 const refreshCookieName = "refresh_token"

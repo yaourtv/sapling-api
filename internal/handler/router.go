@@ -6,8 +6,8 @@ import (
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
 
-	"github.com/egoralekseychik/job-tracker-api/internal/middleware"
-	"github.com/egoralekseychik/job-tracker-api/internal/token"
+	"github.com/yaourtv/sapling-api/internal/middleware"
+	"github.com/yaourtv/sapling-api/internal/token"
 )
 
 // Handlers bundles every HTTP handler needed to build the router.
